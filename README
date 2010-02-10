@@ -1,3 +1,10 @@
+Treewatcher
+===========
+
+Treewatcher is a python library to monitor a directory recursively using inotify.
+Treewatcher is still a work in progress.
+
+
 Dependencies
 ============
 
@@ -8,11 +15,12 @@ Installation
 ============
 
 I suggest to use virtualenv. It will help keeping your distribution happy :)
-Install inotifyx (see Dependencies)
+Install inotifyx (see Dependencies) and install treewatcher :
 
-$ python setup.py install
+$ git clone git://github.com/jbd/treewatcher.git
+$ cd treewatcher && python setup.py install
 
-Lauching tests
-==============
+Launching tests
+===============
 
 python setup.py test
