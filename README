@@ -4,6 +4,7 @@ Treewatcher
 Treewatcher is a python library to monitor a directory recursively using inotify.
 Treewatcher is still a work in progress.
 
+It's heavily inspired from some parts of the pytagsfs project : http://www.pytagsfs.org/
 
 Dependencies
 ============
