@@ -12,6 +12,9 @@ Dependencies
 inotifyx (>=0.1.1) : http://www.alittletooquiet.net/software/inotifyx/
 You can install it using pip: $ pip install inotifyx
 
+You can also run python setup.py install from the project root directory,
+it will pull the needed dependencies.
+
 Installation
 ============
 
@@ -20,6 +23,18 @@ Install inotifyx (see Dependencies) and install treewatcher :
 
 $ git clone git://github.com/jbd/treewatcher.git
 $ cd treewatcher && python setup.py install
+
+Here is a complete example using virtualenv and virtualenvwrapper from http://www.doughellmann.com/projects/virtualenvwrapper/
+
+$ mkvirtualenv test
+$ easy_install pip
+$ git clone git://github.com/jbd/treewatcher.git
+$ cd treewatcher
+$ python setup.py install
+
+Your done ! You can launch the test suite :
+
+$ python setup.py test
 
 Launching tests
 ===============
