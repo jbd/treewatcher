@@ -27,7 +27,7 @@ SOURCE_TREE_MONITORS = (
 
 class MissingDependency(Exception):
     """
-    Give an explicit exception name in the context 
+    Give an explicit exception name in the context
     of this file
     """
     pass
@@ -103,7 +103,7 @@ class EventsCallbacks(object):
 
     def delete(self, path, is_dir):
         """ callback called on a 'IN_DELETE' event """
-    
+
     def close_write(self, path, is_dir):
         """ callback called on a 'IN_CLOSE_WRITE' event """
 
@@ -144,7 +144,7 @@ class SourceTreeMonitor(object):
 
     def process_events(self):
         """Process pending events.  Do not block."""
-    
+
     def process_events_timeout(self, timeout):
         """Process pending events.  Timeout block."""
 

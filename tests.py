@@ -31,32 +31,32 @@ from treewatcher import EventsCallbacks
 class TestsCallbacks(EventsCallbacks):
     """
     Callbacks class for testing purpose
-    We will count events and check if we got 
+    We will count events and check if we got
     the right number
     """
     def __init__(self):
         EventsCallbacks.__init__(self)
         self.create_counter = 0
         self.cw_counter = 0
-        self.create_dir = 0
-        self.create_file = 0
+        self.create_dirs = 0
+        self.create_files = 0
 
     def create(self, path, is_dir):
         """ Impressive function """
         self.create_counter += 1
         if is_dir:
-            self.create_dir += 1
+            self.create_dirs += 1
         else:
-            self.create_file += 1
+            self.create_files += 1
 
     def close_write(self, path, is_dir):
         """ Again """
         self.cw_counter += 1
 
 
-def create_files(where, number, dirs_number=0):
+def create_files(where, files_number=0, dirs_number=0):
     """
-    This function will create files in the 'where' directory. 
+    This function will create files in the 'where' directory.
     It's behaviour depends on the value of the dirs_number parameter
     - if dirs_number is 0 (default), number designates the number of files
     which will be created in the where directory.
