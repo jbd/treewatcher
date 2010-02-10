@@ -64,15 +64,29 @@ def create_files(where, files_number=0, dirs_number=0):
       in each of them
     """
     if dirs_number == 0:
-        for i in range(number):
+        for i in range(files_number):
             myfile = tempfile.mkstemp(prefix=('%02d' % i + '_'), dir=where)
             os.close(myfile[0])
     else:
         for i in range(dirs_number):
             location = tempfile.mkdtemp(prefix=('%02d' % i + '_'), dir=where)
-            for j in range(number):
+            for j in range(files_number):
                 myfile = tempfile.mkstemp(prefix=('%02d' % j + '_'), dir=location)
                 os.close(myfile[0])
+
+
+def create_files_tree(where, files_number=0, dirs_number=0, sublevels=0):
+    """
+    create_file wrapper with a sublevels option. It will create a "create_files" structure
+    under each sublevels
+    """
+    if sublevels == 0:
+        create_files(where, files_number, dirs_number)
+    else:
+        location = where
+        for i in range(sublevels):
+            location = tempfile.mkdtemp(prefix=('%02d' % i + '_'), dir=location)
+            create_files(location, files_number, dirs_number)
 
 
 def clean_dir(folder):
@@ -87,24 +101,40 @@ def clean_dir(folder):
             os.remove(os.path.join(folder, myfile))
 
 
-def _wanted_close_write(files_number, dirs_number=0, loop=1):
+def _wanted_close_write(files_number, dirs_number, sublevels, loop):
     """
     Helper function to compute the wanted number of close_write events
     """
-    if dirs_number != 0:
-        return files_number * dirs_number * loop
-    else:
-        return files_number * loop
+
+    # hack to prevent ugly if/else branching mess
+    if sublevels == 0:
+        sublevels = 1
+    if dirs_number == 0:
+        dirs_number = 1
+    if loop == 0:
+        loop = 1
+
+    return files_number * dirs_number * sublevels * loop
 
 
-def _wanted_create(files_number, dirs_number=0, loop=1):
+def _wanted_create(files_number, dirs_number, sublevels, loop):
     """
     Helper function to compute the wanted number of create events
     """
-    if dirs_number != 0:
-        return (files_number * dirs_number + dirs_number) * loop
+    # hack to prevent ugly if/else branching mess
+    dirs_number_p = dirs_number
+    sublevels_p = sublevels
+    if sublevels == 0:
+        sublevels = 1
+    if dirs_number == 0:
+        dirs_number = 1
+    if loop == 0:
+        loop = 1
+
+    if dirs_number_p != 0 and sublevels_p != 0:
+        return ((files_number * dirs_number * sublevels ) + sublevels * (1 + dirs_number_p)) * loop
     else:
-        return files_number * loop
+        return ((files_number * dirs_number * sublevels ) + dirs_number_p + sublevels_p) * loop
 
 
 class TestTreeWatcher(unittest.TestCase):
@@ -134,30 +164,30 @@ class TestTreeWatcher(unittest.TestCase):
         shutil.rmtree(self.test_dir)
 
 
-    def _check_count_bool(self, files_number, dirs_number=0, loop_iter=1):
+    def _check_count_bool(self, files_number, dirs_number=0, sublevels=0, loop_iter=1):
         """
         Helper function to check if we've got the right number of events, returns a boolean
         """
-        return self.callbacks.create_counter == _wanted_create(files_number, dirs_number, loop_iter) and \
-               self.callbacks.cw_counter == _wanted_close_write(files_number, dirs_number, loop_iter)
+        return self.callbacks.create_counter == _wanted_create(files_number, dirs_number, sublevels, loop_iter) and \
+               self.callbacks.cw_counter == _wanted_close_write(files_number, dirs_number, sublevels, loop_iter)
 
-    def _check_count(self, files_number, dirs_number=0, loop_iter=1):
+    def _check_count(self, files_number, dirs_number=0, sublevels=0, loop_iter=1):
         """
         Helper function to check if we've got the right number of events, using assertEqual
         """
-        self.assertEqual(self.callbacks.create_counter, _wanted_create(files_number, dirs_number, loop_iter))
-        self.assertEqual(self.callbacks.cw_counter, _wanted_close_write(files_number, dirs_number, loop_iter))
+        self.assertEqual(self.callbacks.create_counter, _wanted_create(files_number, dirs_number, sublevels, loop_iter))
+        self.assertEqual(self.callbacks.cw_counter, _wanted_close_write(files_number, dirs_number, sublevels, loop_iter))
 
-    def _run_helper(self, files_number, dirs_number=0, timeout=1, loop_iter=1):
+    def _run_helper(self, files_number, dirs_number=0, sublevels=0, timeout=1, loop_iter=1):
         """
         Helper function to create a specific tree and checks for events
         """
-        until_predicate = lambda: self._check_count_bool(files_number, dirs_number, loop_iter=loop_iter) 
-        create_files(self.test_dir, files_number, dirs_number)
+        until_predicate = lambda: self._check_count_bool(files_number, dirs_number, sublevels=sublevels, loop_iter=loop_iter)
+        create_files_tree(self.test_dir, files_number=files_number, dirs_number=dirs_number, sublevels=sublevels)
         self.stm.process_events_timeout(timeout=timeout, until_predicate=until_predicate)
 
 
-    def _test_helper(self, files_number, dirs_number=0, loop=1, timeout=1, sublevels=0, cleanup=True):
+    def _test_helper(self, files_number=0, dirs_number=0, loop=1, timeout=5, sublevels=0, cleanup=True):
         """
         Helper function that run tests
         It will create the files tree using parameters (see create_files),
@@ -165,66 +195,150 @@ class TestTreeWatcher(unittest.TestCase):
         if we've got what we want.
         """
         for i in xrange(loop):
-            self._run_helper(files_number, dirs_number, timeout=timeout, loop_iter=i+1)
+            self._run_helper(files_number, dirs_number, sublevels=sublevels, timeout=timeout, loop_iter=i+1)
             if cleanup:
                 clean_dir(self.test_dir)
-        self._check_count(files_number=files_number, dirs_number=dirs_number, loop_iter=loop)
+        self._check_count(files_number=files_number, dirs_number=dirs_number, sublevels=sublevels, loop_iter=loop)
 
 
     def test_nosublevel_onefile(self):
-        """ 
+        """
         Test: one file in our watched dir
         """
         self._test_helper(files_number=1)
 
 
     def test_nosublevel_onefile_loop(self):
-        """ 
+        """
         Test: one file in our watched dir, in a loop
         """
         self._test_helper(files_number=1, loop=10)
 
 
+    def test_nosublevel_onedir(self):
+        """
+        Test: one dir in our watched dir
+        """
+        self._test_helper(dirs_number=1)
+
+
+    def test_nosublevel_onedir(self):
+        """
+        Test: one dir in our watched dir, in a loop
+        """
+        self._test_helper(dirs_number=1, loop=10)
+
+
     def test_nosublevel_manyfiles(self):
-        """ 
+        """
         Test: many file in our watched dir
         """
         self._test_helper(files_number=999)
 
 
     def test_nosublevel_manyfiles_loop(self):
-        """ 
+        """
         Test: many file in our watched dir, in a loop
         """
         self._test_helper(files_number=999, loop=10)
 
 
+    def test_nosublevel_manydirs(self):
+        """
+        Test: many dirs in our watched dir
+        """
+        self._test_helper(dirs_number=999)
+
+
+    def test_nosublevel_manydirs_loop(self):
+        """
+        Test: many dirs in our watched dir, in a loop
+        """
+        self._test_helper(dirs_number=999, loop=10)
+
+
+    def test_nosublevel_manydirs_and_files(self):
+        """
+        Test: many dirs and files in our watched dir
+        """
+        self._test_helper(files_number=10, dirs_number=999)
+
+
+    def test_nosublevel_manydirs_and_files_loop(self):
+        """
+        Test: many dirs and files in our watched dir, in a loop
+        """
+        self._test_helper(files_number=10, dirs_number=999, loop=10)
+
+
     def test_one_sublevel_one(self):
-        """ 
+        """
         Test: one file in a subdir in our watched dir
         """
-        self._test_helper(files_number=1, dirs_number=1, loop=1)
+        self._test_helper(files_number=1, dirs_number=0, sublevels=1, loop=1)
 
 
     def test_one_sublevel_one_loop(self):
-        """ 
+        """
         Test: one file in a subdir in our watched dir, in a loop
         """
-        self._test_helper(files_number=1, dirs_number=1, loop=10)
+        self._test_helper(files_number=1, dirs_number=0, sublevels=1, loop=10)
 
 
     def test_one_sublevel_many(self):
-        """ 
+        """
         Test: many files in a subdir in our watched dir
         """
-        self._test_helper(files_number=999, dirs_number=10, loop=1)
+        self._test_helper(files_number=999, dirs_number=0, sublevels=1, loop=1)
 
 
     def test_one_sublevel_many_loop(self):
-        """ 
+        """
         Test: many files in a subdir in our watched dir, in a loop
         """
-        self._test_helper(files_number=999, dirs_number=10, loop=10)
+        self._test_helper(files_number=999, dirs_number=0, sublevels=1, loop=10)
+
+
+    def test_one_sublevel_many_dirs(self):
+        """
+        Test: many dirs in a subdir in our watched dir
+        """
+        self._test_helper(dirs_number=999, sublevels=1, loop=1)
+
+
+    def test_one_sublevel_many_dirs_loop(self):
+        """
+        Test: many files in a subdir in our watched dir, in a loop
+        """
+        self._test_helper(dirs_number=999, sublevels=1, loop=10)
+
+
+    def test_one_sublevel_many_files_and_dir(self):
+        """
+        Test: many dirs and files in a subdir in our watched dir
+        """
+        self._test_helper(files_number=10, dirs_number=999, sublevels=1, loop=1)
+
+
+    def test_one_sublevel_many_files_and_dirs_loop(self):
+        """
+        Test: many files and files in a subdir in our watched dir, in a loop
+        """
+        self._test_helper(files_number=10, dirs_number=999, sublevels=1, loop=10)
+
+
+    def test_many_sublevels_many_files_and_dir(self):
+        """
+        Test: many dirs and files in many subdir in our watched dir
+        """
+        self._test_helper(files_number=10, dirs_number=99, sublevels=7, loop=1)
+
+
+    def test_many_sublevels_many_files_and_dirs_loop(self):
+        """
+        Test: many files and files in a subdir in our watched dir, in a loop
+        """
+        self._test_helper(files_number=10, dirs_number=99, sublevels=7, loop=10)
 
 
 def main():
