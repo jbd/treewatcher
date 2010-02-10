@@ -222,7 +222,7 @@ class TestTreeWatcher(unittest.TestCase):
         self._test_helper(dirs_number=1)
 
 
-    def test_nosublevel_onedir(self):
+    def test_nosublevel_onedir_loop(self):
         """
         Test: one dir in our watched dir, in a loop
         """
