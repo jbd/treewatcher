@@ -1,0 +1,18 @@
+Dependencies
+============
+
+inotifyx (>=0.1.1) : http://www.alittletooquiet.net/software/inotifyx/
+You can install it using pip: $ pip install inotifyx
+
+Installation
+============
+
+I suggest to use virtualenv. It will help keeping your distribution happy :)
+Install inotifyx (see Dependencies)
+
+$ python setup.py install
+
+Lauching tests
+==============
+
+python setup.py test
