@@ -127,7 +127,13 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             isdir = os.path.isdir(sub_path)
             self.events_callbacks.create(sub_path, isdir)
             if not isdir:
+                # if we detect a file, we assume its ready to read.
+                # The not ready case has to handled in the callback.
+                # If the file it's not ready, we assume that a normal
+                # IN_CLOSE_WRITE event will we triggered by the inotify subsystem
                 self.events_callbacks.close_write(sub_path, isdir)
+            else:
+                self.add_source_dir(sub_path)
 
 
     def remove_source_dir(self, real_path):
