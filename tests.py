@@ -185,7 +185,7 @@ class TestTreeWatcher(unittest.TestCase):
         """
         until_predicate = lambda: self._check_count_bool(files_number, dirs_number, sublevels=sublevels, loop_iter=loop_iter)
         create_files_tree(self.test_dir, files_number=files_number, dirs_number=dirs_number, sublevels=sublevels)
-        self.stm.process_events_timeout(timeout=timeout, until_predicate=until_predicate)
+        self.stm.process_events(timeout=timeout, until_predicate=until_predicate)
 
 
     def _test_helper(self, files_number=0, dirs_number=0, loop=1, timeout=5, sublevels=0, cleanup=True):

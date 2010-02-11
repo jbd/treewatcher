@@ -23,6 +23,7 @@ import os
 import errno
 import inotifyx
 import time
+import sys
 
 from treewatcher import SourceTreeMonitor
 
@@ -82,7 +83,7 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             return False
 
 
-    def _unwatch_dir(self, real_path):
+    def _unwatch_dir_helper(self, real_path):
         """
         Remove a watch on the specified path
         """
@@ -95,6 +96,19 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         self._rm_watch(watch_fd)
         del self.path_to_wd[real_path]
         del self.wd_to_path[watch_fd]
+
+
+    def _unwatch_dir(self, real_path):
+        """
+        Remove a watch on the specified path and all
+        its children
+        """
+        # we cannot use iterkeys here, because the dictionnary
+        # is likely to change during iteration
+        for path in self.path_to_wd.keys():
+            if path.startswith(real_path):
+                self._unwatch_dir_helper(path)
+
 
     def _rm_watch(self, watch_fd):
         """
@@ -115,7 +129,7 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         os.close(self.inotify_fd)
 
 
-    def add_source_dir(self, path):
+    def _add_source_dir(self, path, do_events=True):
         """
         Add a source_dir recursively
         """
@@ -129,18 +143,26 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         for name in names:
             sub_path = os.path.join(path, name)
             isdir = os.path.isdir(sub_path)
-            self.events_callbacks.create(sub_path, isdir)
-            if not isdir:
+            if do_events:
+                self.events_callbacks.create(sub_path, isdir)
+            if not isdir and do_events:
                 # if we detect a file, we assume its ready to read.
                 # The not ready case has to handled in the callback.
                 # If the file it's not ready, we assume that a normal
                 # IN_CLOSE_WRITE event will we triggered by the inotify subsystem
                 self.events_callbacks.close_write(sub_path, isdir)
-            else:
-                self.add_source_dir(sub_path)
+            elif isdir:
+                self._add_source_dir(sub_path, do_events=do_events)
 
 
-    def remove_source_dir(self, real_path):
+    def add_source_dir(self, path):
+        """
+        Add a source_dir recursively
+        """
+        self._add_source_dir(path, do_events=False)
+
+
+    def _remove_source_dir(self, real_path):
         """
         Remove watch from real_path
         """
@@ -185,21 +207,27 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         if event.mask & self.inotifyx.IN_CREATE:
             events_cb.create(path, is_dir)
             if is_dir:
-                self.add_source_dir(path)
+                self._add_source_dir(path)
         elif event.mask & self.inotifyx.IN_DELETE:
             events_cb.delete(path, is_dir)
+            if is_dir:
+                self._remove_source_dir(path)
         elif event.mask & self.inotifyx.IN_CLOSE_WRITE:
             events_cb.close_write(path, is_dir)
         elif event.mask & self.inotifyx.IN_MOVED_FROM:
             events_cb.moved_from(path, is_dir)
+            if is_dir:
+                self._remove_source_dir(path)
         elif event.mask & self.inotifyx.IN_MOVED_TO:
             events_cb.moved_to(path, is_dir)
         elif event.mask & self.inotifyx.IN_MODIFY:
-            events_cb.update(path, is_dir)
+            events_cb.modify(path, is_dir)
         elif event.mask & self.inotifyx.IN_ATTRIB:
-            events_cb.update(path, is_dir)
+            events_cb.attrib(path, is_dir)
         elif event.mask & self.inotifyx.IN_UNMOUNT:
-            events_cb.delete(path, is_dir)
+            events_cb.unmount(path, is_dir)
+            if is_dir:
+                self._remove_source_dir(path)
         elif event.mask & self.inotifyx.IN_IGNORED:
             pass
         elif event.mask & self.inotifyx.IN_Q_OVERFLOW:
@@ -213,33 +241,46 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             )
 
 
-    def _get_events(self):
+    def _get_events(self, block=False):
         """
-        Retrieve events from inotify, without blocking
+        Retrieve events from inotify, without blocking by default
         See below.
         """
-        return self.inotifyx.get_events(self.inotify_fd, 0)
+        if block:
+            return self.inotifyx.get_events(self.inotify_fd)
+        else:
+            return self.inotifyx.get_events(self.inotify_fd, 0)
 
-    def process_events(self):
+
+    def _process_events_internal(self, block=False):
         """
-        Event process loop
+        Internal event process loop
         """
-        for event in self._get_events():
+        for event in self._get_events(block=block):
             self._process_event(event)
 
-    def process_events_timeout(self, timeout, until_predicate = None, sleep_delay = 0.1):
+
+    def process_events(self, timeout=sys.maxint, until_predicate=None, sleep_delay=0.1):
         """
         Event process loop during timeout seconds at most or when the predicate became true
         We use a sleep here instead of self.inotifyx.get_events(self.inotify_fd) (without a
         timeout parameter) to catch events early.
         """
+        # we want to block if the user didn't specify any timeout and no until_predicate function
+        block = False
+        if timeout == sys.maxint and not until_predicate:
+            block = True
+
+        # hack to make the while loop work even if no predicate function is given
         if not until_predicate:
             until_predicate = lambda: False
+
         start = time.time()
         delay = 0
+
         while delay < timeout and not until_predicate():
-        #while delay < timeout:
-            self.process_events()
-            time.sleep(sleep_delay)
+            self._process_events_internal(block=block)
+            if not block:
+                time.sleep(sleep_delay)
             delay = time.time() - start
 
