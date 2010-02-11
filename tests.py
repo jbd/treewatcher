@@ -178,6 +178,7 @@ class TestTreeWatcher(unittest.TestCase):
         self.assertEqual(self.callbacks.create_counter, _wanted_create(files_number, dirs_number, sublevels, loop_iter))
         self.assertEqual(self.callbacks.cw_counter, _wanted_close_write(files_number, dirs_number, sublevels, loop_iter))
 
+
     def _run_helper(self, files_number, dirs_number=0, sublevels=0, timeout=1, loop_iter=1):
         """
         Helper function to create a specific tree and checks for events

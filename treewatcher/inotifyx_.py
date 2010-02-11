@@ -26,6 +26,7 @@ import time
 
 from treewatcher import SourceTreeMonitor
 
+
 class InotifyxSourceTreeMonitor(SourceTreeMonitor):
     """
     inotifyx based tree monitor class
@@ -33,6 +34,7 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
     wd_to_path = None
     path_to_wd = None
     fd = None
+
 
     def __init__(self):
         SourceTreeMonitor.__init__(self)
@@ -50,11 +52,13 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         self.path_to_wd = {}
         self.inotify_fd = None
 
+
     def start(self, debug = False):
         """
         start inotifyx subsystem
         """
         self.inotify_fd = self.inotifyx.init()
+
 
     def _watch_dir(self, real_path):
         """
