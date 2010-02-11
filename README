@@ -40,3 +40,9 @@ Launching tests
 ===============
 
 python setup.py test
+
+
+Examples
+========
+
+You will find examples in the examples directory.
