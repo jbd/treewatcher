@@ -24,20 +24,27 @@ import errno
 import inotifyx
 import time
 import sys
+import threading
+import multiprocessing
+import logging
+
+import Queue
 
 from treewatcher import SourceTreeMonitor
 
+_INOTIFYX_STM_LOGGER = logging.getLogger('_INOTIFYX_STM_LOGGER')
+_INOTIFYX_STM_LOGGER.setLevel(logging.INFO)
+_INOTIFYX_STM_LOGGER.addHandler(logging.StreamHandler())
 
 class InotifyxSourceTreeMonitor(SourceTreeMonitor):
     """
     inotifyx based tree monitor class
     """
-    wd_to_path = None
-    path_to_wd = None
-    fd = None
-
 
     def __init__(self):
+        """
+        Init. Nothing fancy here.
+        """
         SourceTreeMonitor.__init__(self)
         self.inotifyx = inotifyx
         self.event_mask = (
@@ -125,6 +132,7 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
     def stop(self):
         """
         Stop inotifyx subsystem
+        Call it from the same thread you've started your file monitor !
         """
         os.close(self.inotify_fd)
 
@@ -144,13 +152,13 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             sub_path = os.path.join(path, name)
             isdir = os.path.isdir(sub_path)
             if do_events:
-                self.events_callbacks.create(sub_path, isdir)
+                self.events_callbacks._create(sub_path, isdir)
             if not isdir and do_events:
                 # if we detect a file, we assume its ready to read.
                 # The not ready case has to handled in the callback.
                 # If the file it's not ready, we assume that a normal
                 # IN_CLOSE_WRITE event will we triggered by the inotify subsystem
-                self.events_callbacks.close_write(sub_path, isdir)
+                self.events_callbacks._close_write(sub_path, isdir)
             elif isdir:
                 self._add_source_dir(sub_path, do_events=do_events)
 
@@ -189,10 +197,9 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             # happen for other event types, but could if paths were rapidly
             # added and removed.
             if not (event.mask & self.inotifyx.IN_IGNORED):
-                print (
-                  'InotifyxSourceTreeMonitor: late event: %s, %r',
-                  event,
-                  event,
+                logging.debug (
+                  'InotifyxSourceTreeMonitor: late event: %s, %r' %
+                  (event, event)
                 )
             return
 
@@ -205,33 +212,35 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         events_cb = self.events_callbacks
 
         if event.mask & self.inotifyx.IN_CREATE:
-            events_cb.create(path, is_dir)
+            events_cb._create(path, is_dir)
+            # we manually handle any created subdir
             if is_dir:
                 self._add_source_dir(path)
         elif event.mask & self.inotifyx.IN_DELETE:
-            events_cb.delete(path, is_dir)
+            events_cb._delete(path, is_dir)
+            # we manually handle any deleted subdir
             if is_dir:
                 self._remove_source_dir(path)
         elif event.mask & self.inotifyx.IN_CLOSE_WRITE:
-            events_cb.close_write(path, is_dir)
+            events_cb._close_write(path, is_dir)
         elif event.mask & self.inotifyx.IN_MOVED_FROM:
-            events_cb.moved_from(path, is_dir)
+            events_cb._moved_from(path, is_dir)
             if is_dir:
                 self._remove_source_dir(path)
         elif event.mask & self.inotifyx.IN_MOVED_TO:
-            events_cb.moved_to(path, is_dir)
+            events_cb._moved_to(path, is_dir)
         elif event.mask & self.inotifyx.IN_MODIFY:
-            events_cb.modify(path, is_dir)
+            events_cb._modify(path, is_dir)
         elif event.mask & self.inotifyx.IN_ATTRIB:
-            events_cb.attrib(path, is_dir)
+            events_cb._attrib(path, is_dir)
         elif event.mask & self.inotifyx.IN_UNMOUNT:
-            events_cb.unmount(path, is_dir)
+            events_cb._unmount(path, is_dir)
             if is_dir:
                 self._remove_source_dir(path)
         elif event.mask & self.inotifyx.IN_IGNORED:
             pass
         elif event.mask & self.inotifyx.IN_Q_OVERFLOW:
-            print(
+            logging.debug(
               'InotifyxSourceTreeMonitor: '
               'event queue overflowed, events were probably lost'
             )
@@ -260,12 +269,85 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             self._process_event(event)
 
 
-    def process_events(self, timeout=sys.maxint, until_predicate=None, sleep_delay=0.1):
+    def _start_events_queue_processing(self, ev_queue=None):
+        """
+        This internal function encapsulate the logic around the events_queue
+        depending on the type of the callback.
+
+        This function is used in serial, threaded an multiprocessing mode.
+        In the last two mode, this function is the target argument of the
+        Thread/Process constructor
+        """
+        # TODO: the multiprocessing mode does not work like i want
+        # when i've got shared state between callback. I need to figure
+        # out why
+        if self.events_callbacks._multiprocessing:
+            events_queue = ev_queue
+        else:
+            events_queue = self.events_queue
+
+        # some lambda logic function to have a "clean" while loop condition
+        if not self.events_callbacks._serial:
+            continue_condition = lambda: True
+        else:
+            # it's safe to call empty here because there is not concurrent access
+            # to the events_queue
+            continue_condition = lambda: not events_queue.empty()
+        while continue_condition():
+            event = events_queue.get()
+            if event is None:
+                events_queue.task_done()
+                break
+            # we retrieve a event triplet like ('create', '/tmp/foo', True)
+            # we call the adequate function of the events_callbacks object
+            callback = getattr(self.events_callbacks, event[0], None)
+            if callback:
+                callback(event[1], event[2])
+            events_queue.task_done()
+
+        # need to put None here to handle threads/processes join !
+        if not self.events_callbacks._serial:
+            events_queue.put(None)
+
+
+    def _start_events_queue_processes(self, number):
+        """
+        This internal function handles the threads/processes creation
+        in threaded and multiprocessing mode.
+
+        It returns the list of the threads/processes created to join on them
+        when the work is finished.
+        """
+        processes = []
+        for _ in range(number):
+            if self.events_callbacks._threaded:
+                processes.append(threading.Thread(target=self._start_events_queue_processing))
+            elif self.events_callbacks._multiprocessing:
+                processes.append(multiprocessing.Process(target=self._start_events_queue_processing, args=(self.events_queue,)))
+            else:
+                assert False, "Cannot start processes or threads in serial mode."
+            processes[-1].start()
+
+        return processes
+
+
+    def process_events(self, timeout=None, until_predicate=None, sleep_delay=0.1):
         """
         Event process loop during timeout seconds at most or when the predicate became true
-        We use a sleep here instead of self.inotifyx.get_events(self.inotify_fd) (without a
-        timeout parameter) to catch events early.
+
+        If the user specify an until_predicate callable, we don't block on getting inotify
+        event. Instead, we retrieve events using non blocking mode and we sleep during sleep_delay
+        before evaluating the predicate again.
+
+        If the user didn't provide a timeout and a predicate function, we block on getting inotify
+        events.
         """
+
+        if not timeout:
+            timeout = sys.maxint
+
+        if not self.events_callbacks._serial:
+            processes = self._start_events_queue_processes(number=self.workers)
         # we want to block if the user didn't specify any timeout and no until_predicate function
         block = False
         if timeout == sys.maxint and not until_predicate:
@@ -278,9 +360,20 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         start = time.time()
         delay = 0
 
-        while delay < timeout and not until_predicate():
-            self._process_events_internal(block=block)
-            if not block:
-                time.sleep(sleep_delay)
-            delay = time.time() - start
+        try:
+            while delay < timeout and not until_predicate():
+                self._process_events_internal(block=block)
+                if self.events_callbacks._serial:
+                    self.events_queue.put(None)
+                    self._start_events_queue_processing()
+                if not block:
+                    time.sleep(sleep_delay)
+                delay = time.time() - start
 
+        finally:
+            # we tell the threads/processes to stop
+            if not self.events_callbacks._serial:
+                self.events_queue.put(None)
+                map(lambda p: p.join(), processes)
+            # we make replace the current queue by an empty one
+            self.reset_queue()

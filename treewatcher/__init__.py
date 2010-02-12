@@ -20,6 +20,16 @@ EventsCallbacks
 """
 
 import sys
+import logging
+import threading
+import multiprocessing
+import Queue
+
+
+_SOURCETREEMON_LOGGER = logging.getLogger('_SOURCETREEMON_LOGGER')
+_SOURCETREEMON_LOGGER.setLevel(logging.INFO)
+_SOURCETREEMON_LOGGER.addHandler(logging.StreamHandler())
+
 
 SOURCE_TREE_MONITORS = (
   'treewatcher.inotifyx_.InotifyxSourceTreeMonitor',
@@ -80,61 +90,141 @@ def choose_source_tree_monitor(stm_dotted_name = None):
         try:
             stm = _get_source_tree_monitor(candidate)
         except MissingDependency, err:
-            print >> sys.stderr, (
+            _SOURCETREEMON_LOGGER.error(
               'source tree monitor %s unsupported '
               'due to missing dependency %s'
-            ) % (candidate, str(err))
+              % (candidate, str(err)))
         else:
-            print >> sys.stderr, 'using source tree monitor %s' % candidate
+            _SOURCETREEMON_LOGGER.debug('using source tree monitor %s' % candidate)
             return stm
 
     raise AssertionError('unable to find a usable source tree monitor')
 
 
-class EventsCallbacks(object):
+class _EventsCallbacks(object):
     """
-    Base class for defining callbacks
+    Internal base class for defining events callback.
+
+    The implementation is quite tricky, but quite pretty i think.
+
+    The main idea is that the tree monitor will internally call _create, _close_write, etc..
+    (underscore + event name) and that we use some __getattribute__ magic to put the event is
+    the events queue.
+    """
+
+    def __init__(self, _serial=True, _threaded=False, _multiprocesses=False):
+        """
+        This is an internal class with dirty hacks.
+        """
+        self._stm = None
+        # _valid_events_internal needs to be defined here because of the test
+        # in __getattribute__
+        self._valid_events_internal = []
+        self._valid_events = [ 'create', \
+                              'delete', \
+                              'close_write', \
+                              'moved_from', \
+                              'moved_to', \
+                              'modify', \
+                              'attrib', \
+                              'unmount' ]
+        self._valid_events_internal = [ '_' + value for value in self._valid_events ]
+        self._serial = _serial
+        self._threaded = _threaded
+        self._multiprocessing = _multiprocesses
+
+        assert (int(self._serial) + int(self._threaded) + int(self._multiprocessing)) == 1, \
+                "A events callbacks object must be serial OR threaded OR multiprocessing"
+
+
+    def __getattribute__(self, attr):
+        """
+        __getattribute__ with some lambda : dirty and magic.
+        """
+        if attr in object.__getattribute__(self, '_valid_events_internal'):
+            # we return a lambda which is bind to a function that will put a triplet (event, path, is_dir)
+            # on the event queue. We removed the first char '_' of attr to match the actual name in the 
+            # child class
+            return lambda path, is_dir: object.__getattribute__(self, '_stm').events_queue.put((attr[1:], path, is_dir))
+        else:
+            return object.__getattribute__(self, attr)
+
+
+class EventsCallbacks(_EventsCallbacks):
+    """
+    Easy to use : inherit from it and implement a create, delete, close_write... function
+    (see valid_events for a complete list), that's all.
+
+    This class is for events that will be treated in the same process as the monitor
     """
     def __init__(self):
-        self.source_tree_monitor = None
+        """ init """
+        _EventsCallbacks.__init__(self)
 
-    def create(self, path, is_dir):
-        """ callback called on a 'IN_CREATE' event """
 
-    def delete(self, path, is_dir):
-        """ callback called on a 'IN_DELETE' event """
 
-    def close_write(self, path, is_dir):
-        """ callback called on a 'IN_CLOSE_WRITE' event """
+class ThreadedEventsCallbacks(_EventsCallbacks):
+    """
+    Just like EventsCallbacks, but since each function can be eventually called
+    from different threads, you have to protect the shared state, if you've got one.
+    """
+    def __init__(self):
+        """ init """
+        _EventsCallbacks.__init__(self, _serial=False, _threaded=True)
 
-    def moved_from(self, path, is_dir):
-        """ callback called on a 'IN_MOVED_FROM' event """
 
-    def moved_to(self, path, is_dir):
-        """ callback called on a 'IN_MOVED_TO' event """
-
-    def modify(self, path, is_dir):
-        """ callback called on a 'IN_MODIFY' event """
-
-    def attrib(self, path, is_dir):
-        """ callback called on a 'IN_ATTRIB' event """
-
-    def unmount(self, path, is_dir):
-        """ callback called on a 'IN_UNMOUNT' event """
+class MultiProcessingEventsCallbacks(_EventsCallbacks):
+    """
+    !!! DOES NOT WORK the way i want. DO NOT USE !!!
+    Just like EventsCallbacks, but since each function can be eventually called
+    from different processes, you have to protect the shared state, if you've got one.
+    """
+    def __init__(self):
+        """ init """
+        _EventsCallbacks.__init__(self, _serial=False, _multiprocesses=True)
 
 
 class SourceTreeMonitor(object):
     """
     Source tree monitors need to implement this interface
     """
-    events_callbacks = EventsCallbacks()
 
     def __init__(self):
         """Initialize."""
+        # this has to be set using set_events_callbacks
+        self.events_callbacks = None
+        # the events queue type depends on the type of self.events_callbacks
+        self.events_queue = None
+        # represents the number of threads/processes that will be use
+        # to handle the callbacks
+        self.workers = 1
+
+
+    def reset_queue(self):
+        """
+        Helper function to reset the queue depending on the
+        callbacks type (serial, threaded, etc ...)
+        """
+        if self.events_callbacks._multiprocessing:
+            self.events_queue = multiprocessing.JoinableQueue()
+        else:
+            self.events_queue = Queue.Queue()
+
 
     def set_events_callbacks(self, events_obj):
         """ set the callbacks object for this monitor (see class EventsCallbacks) """
         self.events_callbacks = events_obj
+        self.events_callbacks._stm = self
+        self.reset_queue()
+
+
+    def set_workers_number(self, workers):
+        """
+        Set the number of threads/processes that will be use to handle
+        the callbacks
+        """
+        self.workers = workers
+
 
     def start(self, debug = False):
         """Start monitoring the source tree."""

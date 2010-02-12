@@ -2,9 +2,13 @@ Treewatcher
 ===========
 
 Treewatcher is a python library to monitor a directory recursively using inotify.
-Treewatcher is still a work in progress.
+The user can defined callbacks by subclassing a class. Depending from the type of
+the class the user subclass from, callbacks can be executed in the same process of
+the monitoring process, in a thread or a pool of thread.
 
-It's heavily inspired from some parts of the pytagsfs project : http://www.pytagsfs.org/
+Treewatcher is still a work in progress and the main focus for now is automated testing.
+
+It's inspired from some parts of the pytagsfs project : http://www.pytagsfs.org/
 
 Dependencies
 ============
@@ -32,14 +36,36 @@ $ git clone git://github.com/jbd/treewatcher.git
 $ cd treewatcher
 $ python setup.py install
 
-Your done ! You can launch the test suite :
+You're done ! You can now launch the test suite :
 
-$ python setup.py test
+$ cd tests && ./run_all.py
 
 Launching tests
 ===============
 
-python setup.py test
+Tests are in the 'tests' directory. They can all be launch using the run_all.py script :
+
+$ ./run_all.py (it takes 10 minutes on my machine)
+
+You can also list all available test using le -l option :
+
+$ ./run_all.py -l
+
+You can pick one, or more from the list and run them :
+
+$ ./run_all.py TestSerialTreeWatcher.test_nosublevel_onefile TestFourThreadsTreeWatcher.test_one_sublevel_one
+
+You can also run each test files individually :
+
+$ python test_serialevents.py
+
+You can list tests available from a specific file :
+
+$ python test_serialevents.py -l
+
+And run specifics tests from a specific file :
+
+$ python test_serialevents.py TestSerialTreeWatcher.test_nosublevel_onedir  TestSerialTreeWatcher.test_nosublevel_onefile
 
 
 Examples

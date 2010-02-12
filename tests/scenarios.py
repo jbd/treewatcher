@@ -16,42 +16,36 @@
 
 
 """
-Unit tests for the tree watcher library
+This module contains all the test scenarios in a base class.
+The same tests can be run for different treewatcher type
+(serial, threaded)
 """
 
 import os
+import sys
 import shutil
 import unittest
 import tempfile
+import logging
+
+try:
+    # first we try system wide
+    import treewatcher
+except ImportError:
+    # it it fails, it means that the library is not installed.
+    # this is a hack to allow running tests without reinstalling the library
+    # each time there is a change
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), os.path.pardir))
+    import treewatcher
 
 from treewatcher import choose_source_tree_monitor
 from treewatcher import EventsCallbacks
 
 
-class TestsCallbacks(EventsCallbacks):
-    """
-    Callbacks class for testing purpose
-    We will count events and check if we got
-    the right number
-    """
-    def __init__(self):
-        EventsCallbacks.__init__(self)
-        self.create_counter = 0
-        self.cw_counter = 0
-        self.create_dirs = 0
-        self.create_files = 0
-
-    def create(self, path, is_dir):
-        """ Impressive function """
-        self.create_counter += 1
-        if is_dir:
-            self.create_dirs += 1
-        else:
-            self.create_files += 1
-
-    def close_write(self, path, is_dir):
-        """ Again """
-        self.cw_counter += 1
+# global logger for this module
+_TESTS_LOGGER = logging.getLogger('_TESTS_LOGGER')
+_TESTS_LOGGER.setLevel(logging.INFO)
+_TESTS_LOGGER.addHandler(logging.StreamHandler())
 
 
 def create_files(where, files_number=0, dirs_number=0):
@@ -143,17 +137,30 @@ class TestTreeWatcher(unittest.TestCase):
     We watch a specified directory, create some particular tree structure in it
     and check if we've got the rigght number of inotify events
     """
+
+    def setup_helper(self, callbacks, workers=1):
+        """
+        Helper that set the state of the treewatcher.
+        It avoids a lot of copy and paste between test files
+        """
+        self.test_dir = tempfile.mkdtemp()
+        self.stm = choose_source_tree_monitor()
+        self.callbacks = callbacks
+        self.stm.set_events_callbacks(self.callbacks)
+        self.stm.set_workers_number(workers)
+        self.stm.start()
+        self.stm.add_source_dir(self.test_dir)
+
+
     def setUp(self):
         """
         This function is called before each test
         We create and start our tree watcher
+
+        It should be overriden in children.
         """
-        self.test_dir = tempfile.mkdtemp()
-        self.stm = choose_source_tree_monitor()
-        self.callbacks = TestsCallbacks()
-        self.stm.set_events_callbacks(self.callbacks)
-        self.stm.start()
-        self.stm.add_source_dir(self.test_dir)
+        self.setup_helper(callbacks=EventsCallbacks())
+
 
     def tearDown(self):
         """
@@ -168,15 +175,20 @@ class TestTreeWatcher(unittest.TestCase):
         """
         Helper function to check if we've got the right number of events, returns a boolean
         """
-        return self.callbacks.create_counter == _wanted_create(files_number, dirs_number, sublevels, loop_iter) and \
-               self.callbacks.cw_counter == _wanted_close_write(files_number, dirs_number, sublevels, loop_iter)
+        return self.callbacks.get_create_counter() == _wanted_create(files_number, dirs_number, sublevels, loop_iter) and \
+               self.callbacks.get_cw_counter() == _wanted_close_write(files_number, dirs_number, sublevels, loop_iter)
+
 
     def _check_count(self, files_number, dirs_number=0, sublevels=0, loop_iter=1):
         """
         Helper function to check if we've got the right number of events, using assertEqual
         """
-        self.assertEqual(self.callbacks.create_counter, _wanted_create(files_number, dirs_number, sublevels, loop_iter))
-        self.assertEqual(self.callbacks.cw_counter, _wanted_close_write(files_number, dirs_number, sublevels, loop_iter))
+        ce_got = self.callbacks.get_create_counter()
+        ce_wanted = _wanted_create(files_number, dirs_number, sublevels, loop_iter)
+        cw_got = self.callbacks.get_cw_counter()
+        cw_wanted = _wanted_close_write(files_number, dirs_number, sublevels, loop_iter)
+        self.assertEqual(ce_got, ce_wanted, '''Got %d 'create events' instead of %d.''' % (ce_got, ce_wanted))
+        self.assertEqual(cw_got, cw_wanted, '''Got %d 'close_write' events instead of %d.''' % (cw_got, cw_wanted))
 
 
     def _run_helper(self, files_number, dirs_number=0, sublevels=0, timeout=1, loop_iter=1):
@@ -188,7 +200,7 @@ class TestTreeWatcher(unittest.TestCase):
         self.stm.process_events(timeout=timeout, until_predicate=until_predicate)
 
 
-    def _test_helper(self, files_number=0, dirs_number=0, loop=1, timeout=5, sublevels=0, cleanup=True):
+    def _test_helper(self, files_number=0, dirs_number=0, loop=1, timeout=1, sublevels=0, cleanup=False):
         """
         Helper function that run tests
         It will create the files tree using parameters (see create_files),
@@ -255,7 +267,7 @@ class TestTreeWatcher(unittest.TestCase):
         """
         Test: many dirs in our watched dir, in a loop
         """
-        self._test_helper(dirs_number=999, loop=10)
+        self._test_helper(dirs_number=999, loop=10, cleanup=True)
 
 
     def test_nosublevel_manydirs_and_files(self):
@@ -269,7 +281,7 @@ class TestTreeWatcher(unittest.TestCase):
         """
         Test: many dirs and files in our watched dir, in a loop
         """
-        self._test_helper(files_number=10, dirs_number=999, loop=10)
+        self._test_helper(files_number=10, dirs_number=999, loop=10, cleanup=True)
 
 
     def test_one_sublevel_one(self):
@@ -311,7 +323,7 @@ class TestTreeWatcher(unittest.TestCase):
         """
         Test: many files in a subdir in our watched dir, in a loop
         """
-        self._test_helper(dirs_number=999, sublevels=1, loop=10)
+        self._test_helper(dirs_number=999, sublevels=1, loop=10, cleanup=True)
 
 
     def test_one_sublevel_many_files_and_dir(self):
@@ -325,7 +337,7 @@ class TestTreeWatcher(unittest.TestCase):
         """
         Test: many files and files in a subdir in our watched dir, in a loop
         """
-        self._test_helper(files_number=10, dirs_number=999, sublevels=1, loop=10)
+        self._test_helper(files_number=10, dirs_number=999, sublevels=1, loop=10, cleanup=True)
 
 
     def test_many_sublevels_many_files_and_dir(self):
@@ -341,14 +353,3 @@ class TestTreeWatcher(unittest.TestCase):
         """
         self._test_helper(files_number=10, dirs_number=99, sublevels=7, loop=10)
 
-
-def main():
-    """
-    Main function
-    """
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestTreeWatcher)
-    unittest.TextTestRunner(verbosity=2).run(suite)
-
-
-if __name__ == "__main__":
-    main()

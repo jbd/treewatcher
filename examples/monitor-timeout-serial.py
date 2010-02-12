@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #-*- coding: utf-8 -*-
 #
 # Copyright (c) 2010 Jean-Baptiste Denis.
@@ -7,29 +8,27 @@
 # Software Foundation.
 #
 # A copy of the license has been included in the COPYING file.
-#
-# This file is HEAVILY inspired by some parts of the pytagsfs project by Forest Bond.
-# Please see: http://www.pytagsfs.org/
-#
-# It has been modified for my specific needs. I don't think those changes could appear
-# in pytagsfs.
 
 import sys
 import os
 
 try:
     # first we try system wide
-    from treewatcher import EventsCallbacks, choose_source_tree_monitor
+    import treewatcher
 except ImportError:
-    this_file_dirname = os.path.split(os.path.realpath(__file__))[0]
-    treewatcher_path = os.path.split(this_file_dirname)[0]
-    sys.path.append(treewatcher_path)
-    from treewatcher import EventsCallbacks, choose_source_tree_monitor
+    # if it fails, we try it from the project source directory
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), os.path.pardir))
+    import treewatcher
+
+
+from treewatcher import EventsCallbacks, choose_source_tree_monitor
 
 
 class MonitorCallbacks(EventsCallbacks):
     """
     Example callbacks which will output the event and path
+    This is a serial type callbacks object : they will be
+    called in the same process as the monitor.
     """
 
     def create(self, path, is_dir):
@@ -96,10 +95,14 @@ if __name__ == '__main__':
     stm.add_source_dir(path_to_watch)
 
     print "Watching directory", path_to_watch
+    print "Open a new terminal, and create/remove some folders and files in the", path_to_watch, "directory"
+    print "Ctrl-C to exit..."
+
     try:
         # without specific arguments, the next call will block forever
         # open a terminal, and create/remove some folders and files
-        stm.process_events()
+        # This will last 10 seconds. use Ctrl-C to exit.
+        stm.process_events(timeout=10)
     except KeyboardInterrupt:
         print "Stopping monitor."
     finally:

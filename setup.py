@@ -8,7 +8,7 @@ if sys.version < '2.4':
 
 # import statements
 import platform
-from setuptools import setup, Extension, Command
+from setuptools import setup, Command
 
 # debug
 DISTUTILS_DEBUG = False
@@ -19,19 +19,19 @@ if not platform.system().startswith('Linux'):
     sys.exit(1)
 
 
-class test(Command):
-    description = 'run tests'
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        from tests import main
-        main()
+#class test(Command):
+#    description = 'run tests'
+#    user_options = []
+#
+#    def initialize_options(self):
+#        pass
+#
+#    def finalize_options(self):
+#        pass
+#
+#    def run(self):
+#        from tests.run_all import main
+#        main()
 
 
 classif = [
@@ -47,7 +47,7 @@ classif = [
 
 
 setup(
-    cmdclass = {'test': test},
+#    cmdclass = {'test': test},
     name = 'treewatcher',
     version = '0.0.1',
     description = 'Linux filesystem directory monitoring',
