@@ -367,7 +367,10 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
                 if self.events_callbacks._serial:
                     self.events_queue.put(None)
                     self._start_events_queue_processing()
-                if not block:
+                if not block or self.events_callbacks._threaded:
+                    # why include self.events_callbacks._threaded in the previous test ?
+                    # without this sleep, the GIL does not seem to be released (inotifyx behaviour ?)
+                    # looks horrible to me
                     time.sleep(sleep_delay)
                 delay = time.time() - start
 
