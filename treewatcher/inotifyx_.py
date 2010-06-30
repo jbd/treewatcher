@@ -293,6 +293,7 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             # it's safe to call empty here because there is not concurrent access
             # to the events_queue
             continue_condition = lambda: not events_queue.empty()
+
         while continue_condition():
             event = events_queue.get()
             if event is None:
