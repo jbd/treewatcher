@@ -19,6 +19,7 @@ This file contains helpers function and interfaces classes SourceTreeMonitor and
 EventsCallbacks
 """
 
+import os
 import sys
 import logging
 import threading

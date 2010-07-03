@@ -54,17 +54,23 @@ class MultiProcessingTestsCallbacks(MultiProcessingEventsCallbacks):
         differents processes, we must protect the counter using adequate object.
         """
         MultiProcessingEventsCallbacks.__init__(self)
+        self.ccl = multiprocessing.Lock()
+        self.cwl = multiprocessing.Lock()
         self.create_counter = multiprocessing.Value('I', 0)
         self.cw_counter = multiprocessing.Value('I', 0)
 
 
     def create(self, path, is_dir):
         """ Impressive function """
+        self.ccl.acquire()
         self.create_counter.value += 1
+        self.ccl.release()
 
     def close_write(self, path, is_dir):
         """ Again """
+        self.cwl.acquire()
         self.cw_counter.value += 1
+        self.cwl.release()
 
     def get_create_counter(self):
         """ Getter """

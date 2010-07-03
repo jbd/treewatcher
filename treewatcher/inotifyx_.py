@@ -28,8 +28,6 @@ import threading
 import multiprocessing
 import logging
 
-import Queue
-
 from treewatcher import SourceTreeMonitor
 
 _INOTIFYX_STM_LOGGER = logging.getLogger('_INOTIFYX_STM_LOGGER')
@@ -270,6 +268,14 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
 
 
     def _start_events_queue_processing(self, ev_queue=None):
+        try:
+            self._start_events_queue_processing_protected(ev_queue)
+        except KeyboardInterrupt:
+            # handle gracefully the exception
+            # useful in multiprocessing mode
+            return
+
+    def _start_events_queue_processing_protected(self, ev_queue=None):
         """
         This internal function encapsulate the logic around the events_queue
         depending on the type of the callback.
@@ -297,14 +303,12 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         while continue_condition():
             event = events_queue.get()
             if event is None:
-                events_queue.task_done()
                 break
             # we retrieve a event triplet like ('create', '/tmp/foo', True)
             # we call the adequate function of the events_callbacks object
             callback = getattr(self.events_callbacks, event[0], None)
             if callback:
                 callback(event[1], event[2])
-            events_queue.task_done()
 
         # need to put None here to handle threads/processes join !
         if not self.events_callbacks._serial:
@@ -379,5 +383,5 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             if not self.events_callbacks._serial:
                 self.events_queue.put(None)
                 map(lambda p: p.join(), processes)
-            # we make replace the current queue by an empty one
+            # we replace the current queue by an empty one
             self.reset_queue()
