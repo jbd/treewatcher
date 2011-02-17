@@ -121,7 +121,7 @@ class _EventsCallbacks(object):
         # _valid_events_internal needs to be defined here because of the test
         # in __getattribute__
         self._valid_events_internal = []
-        self._valid_events = [ 'create', \
+        valid_events = [ 'create', \
                               'delete', \
                               'close_write', \
                               'moved_from', \
@@ -129,7 +129,7 @@ class _EventsCallbacks(object):
                               'modify', \
                               'attrib', \
                               'unmount' ]
-        self._valid_events_internal = [ '_' + value for value in self._valid_events ]
+        self._valid_events_internal = [ '_' + value for value in valid_events ]
         self._serial = _serial
         self._threaded = _threaded
         self._multiprocessing = _multiprocesses
