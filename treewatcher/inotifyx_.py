@@ -300,19 +300,20 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             # to the events_queue
             continue_condition = lambda: not events_queue.empty()
 
-        while continue_condition():
+        while True:
             event = events_queue.get()
-            if event is None:
+            if event is StopIteration:
                 break
             # we retrieve a event triplet like ('create', '/tmp/foo', True)
             # we call the adequate function of the events_callbacks object
             callback = getattr(self.events_callbacks, event[0], None)
             if callback:
+                print callback, event[1], event[2]
                 callback(event[1], event[2])
 
-        # need to put None here to handle threads/processes join !
+        # need to put StopIteration here to handle threads/processes join !
         if not self.events_callbacks._serial:
-            events_queue.put(None)
+            events_queue.put(StopIteration)
 
 
     def _start_events_queue_processes(self, number):
@@ -369,7 +370,7 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
             while delay < timeout and not until_predicate():
                 self._process_events_internal(block=block)
                 if self.events_callbacks._serial:
-                    self.events_queue.put(None)
+                    self.events_queue.put(StopIteration)
                     self._start_events_queue_processing()
                 if not block or self.events_callbacks._threaded:
                     # why include self.events_callbacks._threaded in the previous test ?
@@ -381,7 +382,7 @@ class InotifyxSourceTreeMonitor(SourceTreeMonitor):
         finally:
             # we tell the threads/processes to stop
             if not self.events_callbacks._serial:
-                self.events_queue.put(None)
+                self.events_queue.put(StopIteration)
                 map(lambda p: p.join(), processes)
             # we replace the current queue by an empty one
             self.reset_queue()
