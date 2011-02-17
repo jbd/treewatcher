@@ -2,7 +2,7 @@ Treewatcher
 ===========
 
 Treewatcher is a python library to monitor a directory recursively using inotify.
-The user can defined callbacks by subclassing a class. Depending from the type of
+The user can define callbacks by subclassing a class. Depending from the type of
 the class the user subclass from, callbacks can be executed in the same process of
 the monitoring process, in a thread or a pool of thread.
 

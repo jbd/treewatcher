@@ -80,7 +80,7 @@ def _get_source_tree_monitor(dotted_name):
 def choose_source_tree_monitor(stm_dotted_name = None):
     """
     Convenience function to retrieve a given source tree monitor,
-    or a specific one by given its dotted name. (ie: trewatcher.MyFileMonitor)
+    or a specific one by given its dotted name. (ie: treewatcher.MyFileMonitor)
     """
     if stm_dotted_name is not None:
         candidates = [stm_dotted_name]
